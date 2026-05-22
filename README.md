@@ -1,4 +1,4 @@
-# AVCOS
+# shortform-os
 
 **Autonomous Viral Content Operating System**
 
@@ -60,8 +60,8 @@ Every stage runs as an async Celery worker. The pipeline is non-blocking, retrya
 **1. Clone and configure**
 
 ```bash
-git clone https://github.com/your-org/avcos.git
-cd avcos
+git clone https://github.com/your-org/shortform-os.git
+cd shortform-os
 cp .env.example .env
 # Fill in all API keys in .env
 ```
@@ -156,7 +156,7 @@ All configuration is via environment variables. Copy `.env.example` to `.env` an
 ## Project Structure
 
 ```
-avcos/
+shortform-os/
 ├── backend/
 │   ├── app/
 │   │   ├── api/              # FastAPI route handlers
