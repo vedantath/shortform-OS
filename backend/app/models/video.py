@@ -13,6 +13,8 @@ VideoStatus = Enum(
     "scripting",
     "scripted",
     "voicing",
+    "voiced",
+    "voice_skipped",
     "fetching_visuals",
     "rendering",
     "uploading",

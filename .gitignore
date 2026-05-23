@@ -4,3 +4,8 @@ node_modules/
 .next/
 __pycache__/
 avcos_project_spec.md
+
+backend/script.json
+narration.mp3
+script.json
+voices.txt
