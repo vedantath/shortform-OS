@@ -1,0 +1,101 @@
+// shortform-os Database Schema
+// Paste into https://dbdiagram.io
+
+Project shortform_os {
+  database_type: "PostgreSQL"
+  Note: "Autonomous viral short-form video pipeline"
+}
+
+Enum video_status {
+  pending
+  scripting
+  scripted
+  voicing
+  fetching_visuals
+  rendering
+  uploading
+  live
+  failed
+}
+
+Table trend_signals {
+  id                 uuid        [pk, default: `uuid_generate_v4()`]
+  source             varchar(64) [not null, note: "google_trends | reddit | youtube_rss"]
+  niche              varchar(128) [not null]
+  topic              text        [not null]
+  virality_score     float       [not null, default: 0.0]
+  engagement_score   float       [not null, default: 0.0]
+  monetization_score float       [not null, default: 0.0]
+  saturation_score   float       [not null, default: 0.0]
+  opportunity_score  float       [not null, default: 0.0, note: "0.40*virality + 0.25*engagement + 0.20*monetization - 0.15*saturation"]
+  velocity           float       [not null, default: 0.0]
+  raw_data           text        [null, note: "Raw API response JSON"]
+  created_at         timestamptz [not null, default: `now()`]
+}
+
+Table channels {
+  id                 uuid        [pk, default: `uuid_generate_v4()`]
+  youtube_channel_id varchar(64) [not null, unique]
+  name               varchar(256) [not null]
+  timezone           varchar(64) [not null, default: "UTC"]
+  posting_schedule   text        [null, note: "JSON array of {day, hour} posting windows"]
+  daily_upload_limit int         [not null, default: 5]
+  active             boolean     [not null, default: true]
+  created_at         timestamptz [not null, default: `now()`]
+  updated_at         timestamptz [not null, default: `now()`]
+}
+
+Table videos {
+  id               uuid         [pk, default: `uuid_generate_v4()`]
+  trend_signal_id  uuid         [null]
+  channel_id       uuid         [null]
+  status           video_status [not null, default: "pending"]
+  title            varchar(256) [null]
+  description      text         [null]
+  tags             text         [null, note: "Comma-separated tag string"]
+  youtube_video_id varchar(32)  [null]
+  local_path       text         [null]
+  error_message    text         [null]
+  created_at       timestamptz  [not null, default: `now()`]
+  updated_at       timestamptz  [not null, default: `now()`]
+}
+
+Table prompt_templates {
+  id                   uuid        [pk, default: `uuid_generate_v4()`]
+  name                 varchar(128) [not null]
+  version              int         [not null, default: 1]
+  purpose              varchar(64) [not null, note: "e.g. script_gen, title_gen"]
+  system_prompt        text        [not null]
+  user_prompt_template text        [not null]
+  active               boolean     [not null, default: true]
+  created_at           timestamptz [not null, default: `now()`]
+}
+
+Table scripts {
+  id                 uuid        [pk, default: `uuid_generate_v4()`]
+  video_id           uuid        [not null]
+  prompt_template_id uuid        [null]
+  version            int         [not null, default: 1]
+  content_json       text        [not null, note: "Validated ScriptSchema JSON"]
+  model_used         text        [not null, note: "e.g. claude-sonnet-4-20250514"]
+  created_at         timestamptz [not null, default: `now()`]
+}
+
+Table analytics {
+  id                     uuid        [pk, default: `uuid_generate_v4()`]
+  video_id               uuid        [not null]
+  views                  bigint      [not null, default: 0]
+  likes                  int         [not null, default: 0]
+  comments               int         [not null, default: 0]
+  shares                 int         [not null, default: 0]
+  avg_watch_duration_sec float       [not null, default: 0.0]
+  retention_rate         float       [not null, default: 0.0, note: "0.0 - 1.0"]
+  ctr                    float       [not null, default: 0.0, note: "Click-through rate 0.0 - 1.0"]
+  collected_at           timestamptz [not null, default: `now()`]
+}
+
+Ref: videos.trend_signal_id > trend_signals.id [delete: set null]
+Ref: videos.channel_id > channels.id [delete: set null]
+Ref: scripts.video_id > videos.id [delete: cascade]
+Ref: scripts.prompt_template_id > prompt_templates.id [delete: set null]
+Ref: analytics.video_id > videos.id [delete: cascade]

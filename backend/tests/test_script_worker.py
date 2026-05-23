@@ -95,7 +95,9 @@ class TestCallAnthropic:
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _make_anthropic_response(VALID_SCRIPT_DICT)
 
-        result = _call_anthropic(topic="Python tricks", niche="programming")
+        result = _call_anthropic(
+            topic="Python tricks", niche="programming", hook_pattern="bold-claim"
+        )
 
         assert isinstance(result, ScriptOutput)
         assert result.title == VALID_SCRIPT_DICT["title"]
@@ -110,15 +112,18 @@ class TestCallAnthropic:
         mock_client.messages.create.return_value.content = [content_block]
 
         with pytest.raises(Exception):
-            _call_anthropic(topic="test", niche="test")
+            _call_anthropic(topic="test", niche="test", hook_pattern="bold-claim")
 
 
 class TestGenerateScriptTask:
+    # Decorator order (bottom → top) maps to parameter order (left → right after self).
+    @patch("app.workers.script_worker.synthesize_voice")
+    @patch("app.workers.script_worker.asyncio.run")
     @patch("app.workers.script_worker._call_anthropic")
-    def test_task_returns_result_dict(self, mock_call):
+    def test_task_returns_result_dict(self, mock_call, mock_asyncio_run, mock_voice):
         mock_call.return_value = ScriptOutput.model_validate(VALID_SCRIPT_DICT)
+        mock_asyncio_run.return_value = None  # _persist_script_result returns None
 
-        # Run synchronously via .apply() to bypass broker
         result = generate_script.apply(
             kwargs={
                 "video_id": "test-video-id",
@@ -130,3 +135,40 @@ class TestGenerateScriptTask:
         assert result["video_id"] == "test-video-id"
         assert "script" in result
         assert result["script"]["title"] == VALID_SCRIPT_DICT["title"]
+        mock_voice.apply_async.assert_called_once()
+
+    @patch("app.workers.script_worker.synthesize_voice")
+    @patch("app.workers.script_worker.asyncio.run")
+    @patch("app.workers.script_worker._call_anthropic")
+    def test_hook_pattern_in_result(self, mock_call, mock_asyncio_run, mock_voice):
+        mock_call.return_value = ScriptOutput.model_validate(VALID_SCRIPT_DICT)
+        mock_asyncio_run.return_value = None
+
+        result = generate_script.apply(
+            kwargs={
+                "video_id": "test-video-id",
+                "topic": "Python tricks",
+                "niche": "ai",
+            }
+        ).get()
+
+        assert result["hook_pattern"] == "shocking-prediction"
+        assert result["model_used"] == "claude-sonnet-4-20250514"
+
+    @patch("app.workers.script_worker.synthesize_voice")
+    @patch("app.workers.script_worker.asyncio.run")
+    @patch("app.workers.script_worker._call_anthropic")
+    def test_voice_task_enqueued_with_correct_kwargs(
+        self, mock_call, mock_asyncio_run, mock_voice
+    ):
+        video_id = "test-video-id-789"
+        mock_call.return_value = ScriptOutput.model_validate(VALID_SCRIPT_DICT)
+        mock_asyncio_run.return_value = None
+
+        generate_script.apply(
+            kwargs={"video_id": video_id, "topic": "test", "niche": "ai"}
+        ).get()
+
+        call_kwargs = mock_voice.apply_async.call_args.kwargs["kwargs"]
+        assert call_kwargs["video_id"] == video_id
+        assert "script_json" in call_kwargs

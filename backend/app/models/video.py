@@ -11,6 +11,7 @@ from app.models.base import Base
 VideoStatus = Enum(
     "pending",
     "scripting",
+    "scripted",
     "voicing",
     "fetching_visuals",
     "rendering",

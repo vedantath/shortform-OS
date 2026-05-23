@@ -209,10 +209,13 @@ class TestScrapeReddit:
 
 
 class TestScrapeTask:
+    @patch("app.workers.trend_worker.generate_script")
     @patch("app.workers.trend_worker.asyncio.run")
     @patch("app.workers.trend_worker._scrape_reddit")
     @patch("app.workers.trend_worker._scrape_google_trends")
-    def test_task_returns_summary(self, mock_gt, mock_reddit, mock_asyncio_run):
+    def test_task_returns_summary(self, mock_gt, mock_reddit, mock_asyncio_run, mock_gs):
+        video_id = "vid-001"
+        trend_signal_id = "ts-001"
         qualifying_signal = {
             "source": "google_trends",
             "niche": "ai",
@@ -227,8 +230,11 @@ class TestScrapeTask:
         }
         mock_gt.return_value = [qualifying_signal]
         mock_reddit.return_value = []
-        # _filter_and_save returns (saved=1, skipped=0)
-        mock_asyncio_run.return_value = (1, 0)
+        # _save_and_enqueue now returns (pipeline_jobs, skipped)
+        mock_asyncio_run.return_value = (
+            [{"video_id": video_id, "topic": "AI goes viral", "niche": "ai", "trend_signal_id": trend_signal_id}],
+            0,
+        )
 
         result = scrape_trends.apply(kwargs={"niche": "ai"}).get()
 
@@ -236,12 +242,15 @@ class TestScrapeTask:
         assert result["total_scraped"] == 1
         assert result["qualifying"] == 1
         assert result["saved"] == 1
+        assert result["enqueued"] == 1
         assert result["skipped_duplicates"] == 0
+        mock_gs.apply_async.assert_called_once()
 
+    @patch("app.workers.trend_worker.generate_script")
     @patch("app.workers.trend_worker.asyncio.run")
     @patch("app.workers.trend_worker._scrape_reddit")
     @patch("app.workers.trend_worker._scrape_google_trends")
-    def test_below_threshold_signals_not_saved(self, mock_gt, mock_reddit, mock_asyncio_run):
+    def test_below_threshold_signals_not_saved(self, mock_gt, mock_reddit, mock_asyncio_run, mock_gs):
         low_signal = {
             "source": "google_trends",
             "niche": "ai",
@@ -256,9 +265,11 @@ class TestScrapeTask:
         }
         mock_gt.return_value = [low_signal]
         mock_reddit.return_value = []
-        mock_asyncio_run.return_value = (0, 0)
+        mock_asyncio_run.return_value = ([], 0)
 
         result = scrape_trends.apply(kwargs={"niche": "ai"}).get()
 
         assert result["qualifying"] == 0
         assert result["saved"] == 0
+        assert result["enqueued"] == 0
+        mock_gs.apply_async.assert_not_called()

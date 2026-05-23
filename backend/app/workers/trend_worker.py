@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import praw
@@ -17,6 +18,8 @@ from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.models.trend_signal import TrendSignal
+from app.models.video import Video
+from app.workers.script_worker import generate_script
 
 logger = logging.getLogger(__name__)
 
@@ -278,10 +281,17 @@ def _scrape_reddit(niche: str, subreddits: list[str], post_limit: int = 50) -> l
 # ── DB helpers (async, called via asyncio.run) ────────────────────────────────
 
 
-async def _filter_and_save(candidates: list[dict], niche: str) -> tuple[int, int]:
-    """Dedup against a 6-hour window, insert qualifying signals. Returns (saved, skipped)."""
+async def _save_and_enqueue(
+    candidates: list[dict], niche: str
+) -> tuple[list[dict], int]:
+    """Dedup, persist qualifying TrendSignal + Video rows atomically.
+
+    Returns (pipeline_jobs, skipped) where each job is the kwargs dict that
+    should be passed to generate_script.apply_async.  UUIDs are pre-generated
+    in Python so they are available before the INSERT fires.
+    """
     if not candidates:
-        return 0, 0
+        return [], 0
 
     cutoff = datetime.now(UTC) - timedelta(hours=DEDUP_WINDOW_HOURS)
 
@@ -297,11 +307,24 @@ async def _filter_and_save(candidates: list[dict], niche: str) -> tuple[int, int
         fresh = [s for s in candidates if s["topic"] not in existing_topics]
         skipped = len(candidates) - len(fresh)
 
+        pipeline_jobs: list[dict] = []
         for data in fresh:
-            session.add(TrendSignal(**data))
+            signal_id = uuid.uuid4()
+            video_id = uuid.uuid4()
+            session.add(TrendSignal(id=signal_id, **data))
+            session.add(Video(id=video_id, trend_signal_id=signal_id, status="scripting"))
+            pipeline_jobs.append(
+                {
+                    "video_id": str(video_id),
+                    "topic": data["topic"],
+                    "niche": data["niche"],
+                    "trend_signal_id": str(signal_id),
+                }
+            )
+
         await session.commit()
 
-    return len(fresh), skipped
+    return pipeline_jobs, skipped
 
 
 # ── Celery task ───────────────────────────────────────────────────────────────
@@ -358,12 +381,18 @@ def scrape_trends(
     qualifying = [s for s in all_signals if s["opportunity_score"] >= OPPORTUNITY_THRESHOLD]
 
     try:
-        saved, skipped = asyncio.run(_filter_and_save(qualifying, niche))
+        pipeline_jobs, skipped = asyncio.run(_save_and_enqueue(qualifying, niche))
     except Exception as exc:
-        logger.error(
-            "scrape_trends DB phase failed attempt=%d: %s", attempt, exc
-        )
+        logger.error("scrape_trends DB phase failed attempt=%d: %s", attempt, exc)
         raise self.retry(exc=exc, countdown=backoff)
+
+    for job in pipeline_jobs:
+        generate_script.apply_async(kwargs=job)
+        logger.info(
+            "enqueued generate_script video_id=%s topic=%r",
+            job["video_id"],
+            job["topic"],
+        )
 
     result = {
         "niche": niche,
@@ -371,8 +400,9 @@ def scrape_trends(
         "gt_signals": len(gt_signals),
         "reddit_signals": len(reddit_signals),
         "qualifying": len(qualifying),
-        "saved": saved,
+        "saved": len(pipeline_jobs),
         "skipped_duplicates": skipped,
+        "enqueued": len(pipeline_jobs),
     }
 
     logger.info(
