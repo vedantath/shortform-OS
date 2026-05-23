@@ -1,4 +1,4 @@
-# shortform-os - vedantath
+# shortform-os - vedantath (Vedant Athale)
 
 **Autonomous Viral Content Operating System**
 
