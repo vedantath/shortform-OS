@@ -1,4 +1,4 @@
-# shortform-os
+# shortform-os - vedantath
 
 **Autonomous Viral Content Operating System**
 
