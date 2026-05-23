@@ -100,7 +100,7 @@ def _opportunity(virality: float, engagement: float, monetization: float, satura
 def _scrape_google_trends(niche: str, keywords: list[str]) -> list[dict]:
     """Return scored signal dicts for each keyword with Google Trends data."""
     try:
-        pt = TrendReq(hl="en-US", tz=360, timeout=(10, 25), retries=2, backoff_factor=0.2)
+        pt = TrendReq(hl="en-US", tz=360, timeout=(10, 25))
     except Exception as exc:
         logger.error("pytrends init failed: %s", exc)
         return []
