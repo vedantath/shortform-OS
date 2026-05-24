@@ -16,6 +16,8 @@ VideoStatus = Enum(
     "voiced",
     "voice_skipped",
     "fetching_visuals",
+    "footage_ready",
+    "footage_skipped",
     "rendering",
     "uploading",
     "live",
